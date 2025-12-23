@@ -8,7 +8,7 @@ const WelcomePage = () => {
 
   const joinRoom = () => {
     if (username && room) {
-      navigate(`/room/${room}`, { state: { username } });
+      navigate(`/room/${room}`, { state: { username, room } });
     }
   };
 

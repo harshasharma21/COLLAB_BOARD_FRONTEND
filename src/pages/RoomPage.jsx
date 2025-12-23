@@ -12,6 +12,48 @@ const RoomPage = () => {
   const [brushSize, setBrushSize] = useState(4);
   const [isEraser, setIsEraser] = useState(false);
   const [eraserSize, setEraserSize] = useState(10);
+  const [participants, setParticipants] = useState([]);
+  const [showParticipants, setShowParticipants] = useState(false);
+  const [notification, setNotification] = useState(null);
+
+  useEffect(() => {
+    // Join the room
+    socket.emit("join_room", { username, room });
+    //console.log("Emitted join_room:", { username, room });
+
+    // Listen for user join notifications
+    socket.on("user_joined", ({ username: joinedUser, participants: updatedParticipants }) => {
+      //console.log("Received user_joined:", joinedUser, updatedParticipants);
+      setParticipants(updatedParticipants);
+      setNotification(`${joinedUser} joined the room`);
+      setTimeout(() => setNotification(null), 3000); // Remove notification after 3 seconds
+    });
+
+    // Listen for participants list update
+    socket.on("participants_updated", (updatedParticipants) => {
+      //console.log("Received participants_updated:", updatedParticipants);
+      setParticipants(updatedParticipants);
+    });
+
+    // Listen for canvas state when joining
+    socket.on("canvas_state", (canvasImageData) => {
+      //console.log("Received canvas_state");
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+      };
+      img.src = canvasImageData;
+    });
+
+    return () => {
+      socket.off("user_joined");
+      socket.off("participants_updated");
+      socket.off("canvas_state");
+    };
+  }, [username, room]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -49,12 +91,19 @@ const RoomPage = () => {
         y,
         color: isEraser ? "#ffffff" : color,
         brushSize: isEraser ? eraserSize : brushSize,
+        room,
       });
     };
 
     canvas.addEventListener("mousedown", startDrawing);
     canvas.addEventListener("mouseup", endDrawing);
     canvas.addEventListener("mousemove", draw);
+
+    // Emit canvas state periodically for persistence
+    const canvasInterval = setInterval(() => {
+      const canvasImageData = canvas.toDataURL("image/png");
+      socket.emit("canvas_update", { canvasImageData, room });
+    }, 5000); // Update every 5 seconds
 
     socket.on("drawing", ({ x, y, color, brushSize }) => {
       ctx.lineWidth = brushSize;
@@ -71,12 +120,13 @@ const RoomPage = () => {
       canvas.removeEventListener("mousedown", startDrawing);
       canvas.removeEventListener("mouseup", endDrawing);
       canvas.removeEventListener("mousemove", draw);
+      clearInterval(canvasInterval);
     };
-  }, [color, brushSize, isEraser, eraserSize]);
+  }, [color, brushSize, isEraser, eraserSize, room]);
 
   const sendMessage = () => {
     if (message.trim()) {
-      const newMessage = { username, text: message };
+      const newMessage = { username, text: message, room };
 
       // Add the new message locally
       setMessages((prev) => [...prev, newMessage]);
@@ -117,10 +167,69 @@ const RoomPage = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 font-sans">
+      {/* Notification Popup */}
+      {notification && (
+        <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-pulse">
+          {notification}
+        </div>
+      )}
+
+      {/* Participants Modal */}
+      {showParticipants && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+          <div className="bg-white rounded-lg p-6 w-96 shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Participants ({participants.length})</h2>
+              <button
+                onClick={() => setShowParticipants(false)}
+                className="text-gray-600 hover:text-gray-800 text-2xl font-bold"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {participants.map((participant, index) => (
+                <div
+                  key={index}
+                  className="p-3 bg-blue-50 border border-blue-200 rounded flex items-center"
+                >
+                  <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
+                  <span className="font-semibold text-gray-700">{participant}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex justify-between items-center bg-blue-600 text-white py-3 px-6">
         <h1 className="text-2xl font-bold">Collaborative Whiteboard</h1>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => setShowParticipants(!showParticipants)}
+            className="relative flex items-center justify-center w-10 h-10 bg-blue-500 rounded-full hover:bg-blue-700 transition"
+            title="View participants"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 20h5v-2a3 3 0 00-5.856-1.487M15 10a3 3 0 11-6 0 3 3 0 016 0zM6 20a3 3 0 003-3V9a6 6 0 0112 0v8a3 3 0 003 3H6z"
+              />
+            </svg>
+            {participants.length > 0 && (
+              <span className="absolute top-0 right-0 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {participants.length}
+              </span>
+            )}
+          </button>
           <span className="text-white">Room: {room}</span>
           <button
             onClick={downloadCanvas}
