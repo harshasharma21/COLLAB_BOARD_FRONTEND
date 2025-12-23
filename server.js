@@ -5,9 +5,13 @@ const cors = require("cors");
 
 const app = express();
 const server = http.createServer(app);
+
+// Determine frontend URL based on environment
+const frontendUrl = process.env.REACT_APP_URL || "http://localhost:3000";
+
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000", // React app URL
+    origin: frontendUrl,
     methods: ["GET", "POST"],
   },
 });
@@ -101,6 +105,7 @@ io.on("connection", (socket) => {
 });
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`CORS origin: ${frontendUrl}`);
 });
